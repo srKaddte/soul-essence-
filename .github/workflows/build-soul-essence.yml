@@ -120,7 +120,6 @@ jobs:
 
       - name: Upload generated scaffold
         uses: actions/upload-artifact@v4
-
         with:
           name: soul-essence-nextos-generated-scaffold
           path: .generated
@@ -145,7 +144,6 @@ jobs:
 
       - name: Install AArch64 toolchain
         run: |
-
           sudo apt-get update
 
           sudo apt-get install -y \
@@ -169,7 +167,6 @@ jobs:
 
       - name: Fetch NextOS framework
         run: |
-
           git clone \
             --depth 1 \
             --branch "$FRAMEWORK_REF" \
@@ -181,19 +178,16 @@ jobs:
 
       - name: Configure AArch64
         run: |
-
           chmod +x scripts/BUILD-AARCH64.sh
 
           ./scripts/BUILD-AARCH64.sh configure
 
       - name: Build native adapter
         run: |
-
           ./scripts/BUILD-AARCH64.sh build
 
       - name: Verify ELF
         run: |
-
           test -x \
             build/aarch64/soul-essence-nextos
 
@@ -209,7 +203,6 @@ jobs:
 
       - name: Assemble PortMaster package
         run: |
-
           rm -rf dist
 
           mkdir -p \
@@ -238,26 +231,19 @@ jobs:
             nxproject.json \
             "dist/Soul Essence NextOS/"
 
-          cat > \
-            "dist/Soul Essence NextOS/gamedata/README.txt" \
-            <<'EOF'
-
-SOUL ESSENCE BYO-DATA
-
-Place your legally obtained Soul Essence APK here.
-
-Expected APK:
-
-Soul-essence-v6-0.apk
-
-The public port does not redistribute proprietary
-game data.
-
-EOF
+          printf '%s\n' \
+            'SOUL ESSENCE BYO-DATA' \
+            '' \
+            'Place your legally obtained Soul Essence APK here.' \
+            '' \
+            'Expected APK:' \
+            'Soul-essence-v6-0.apk' \
+            '' \
+            'The public port does not redistribute proprietary game data.' \
+            > "dist/Soul Essence NextOS/gamedata/README.txt"
 
       - name: Create ZIP
         run: |
-
           mkdir -p artifacts
 
           cd dist
@@ -277,7 +263,6 @@ EOF
 
       - name: Upload final artifact
         uses: actions/upload-artifact@v4
-
         with:
           name: soul-essence-nextos-aarch64
           path: artifacts/*
