@@ -1,0 +1,285 @@
+name: Build Soul Essence NextOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      framework_ref:
+        description: "NextOS framework ref"
+        required: true
+        default: "main"
+
+      build_native:
+        description: "Build AArch64 native adapter"
+        type: boolean
+        required: true
+        default: true
+
+  push:
+    paths:
+      - ".github/workflows/build-soul-essence.yml"
+      - "src/**"
+      - "CMakeLists.txt"
+      - "nxproject.json"
+      - "scripts/**"
+      - "port/**"
+
+permissions:
+  contents: read
+
+env:
+  FRAMEWORK_REPO: https://github.com/NextOs-Ports/nextos-framework.git
+  FRAMEWORK_REF: ${{ inputs.framework_ref || 'main' }}
+  DEBIAN_FRONTEND: noninteractive
+  LC_ALL: C
+  TZ: UTC
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+
+  validate:
+
+    name: Validate NextOS project
+
+    runs-on: ubuntu-24.04
+
+    steps:
+
+      - name: Checkout Soul Essence project
+        uses: actions/checkout@v4
+
+      - name: Install validation dependencies
+        run: |
+          sudo apt-get update
+
+          sudo apt-get install -y \
+            python3 \
+            python3-pip \
+            git \
+            unzip \
+            zip \
+            file \
+            binutils
+
+      - name: Fetch NextOS framework
+        run: |
+          git clone \
+            --depth 1 \
+            --branch "$FRAMEWORK_REF" \
+            "$FRAMEWORK_REPO" \
+            third_party/nextos-framework
+
+      - name: Show framework revision
+        run: |
+          git -C third_party/nextos-framework rev-parse HEAD
+
+      - name: Check nxgenerator
+        run: |
+          test -f \
+            third_party/nextos-framework/framework/nxgenerator/nxgenerator.py
+
+          python3 \
+            third_party/nextos-framework/framework/nxgenerator/nxgenerator.py \
+            --help
+
+      - name: Validate nxproject.json
+        run: |
+          test -f nxproject.json
+
+          python3 - <<'PY'
+          import json
+
+          with open("nxproject.json", "r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          assert data["schema_version"] == 3
+          assert data["nxport"]["id"] == "soul-essence-nextos"
+          assert data["nxport"]["architecture"] == "aarch64"
+
+          print("nxproject.json: OK")
+          PY
+
+      - name: Generate NextOS scaffold
+        run: |
+          rm -rf .generated
+
+          python3 \
+            third_party/nextos-framework/framework/nxgenerator/nxgenerator.py \
+            nxproject.json \
+            --source-root . \
+            --output .generated
+
+      - name: Check generated files
+        run: |
+          test -d .generated
+
+          find .generated \
+            -maxdepth 5 \
+            -type f \
+            -print \
+            | sort
+
+      - name: Upload generated scaffold
+        uses: actions/upload-artifact@v4
+
+        with:
+          name: soul-essence-nextos-generated-scaffold
+          path: .generated
+          if-no-files-found: error
+          retention-days: 14
+
+
+  build-aarch64:
+
+    name: Build AArch64 adapter
+
+    needs: validate
+
+    if: ${{ inputs.build_native != false }}
+
+    runs-on: ubuntu-24.04
+
+    steps:
+
+      - name: Checkout Soul Essence project
+        uses: actions/checkout@v4
+
+      - name: Install AArch64 toolchain
+        run: |
+
+          sudo apt-get update
+
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            pkg-config \
+            python3 \
+            git \
+            zip \
+            unzip \
+            file \
+            binutils \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu \
+            libc6-dev-arm64-cross \
+            libsdl2-dev \
+            libegl1-mesa-dev \
+            libgles2-mesa-dev
+
+      - name: Fetch NextOS framework
+        run: |
+
+          git clone \
+            --depth 1 \
+            --branch "$FRAMEWORK_REF" \
+            "$FRAMEWORK_REPO" \
+            third_party/nextos-framework
+
+          git -C third_party/nextos-framework \
+            rev-parse HEAD
+
+      - name: Configure AArch64
+        run: |
+
+          chmod +x scripts/BUILD-AARCH64.sh
+
+          ./scripts/BUILD-AARCH64.sh configure
+
+      - name: Build native adapter
+        run: |
+
+          ./scripts/BUILD-AARCH64.sh build
+
+      - name: Verify ELF
+        run: |
+
+          test -x \
+            build/aarch64/soul-essence-nextos
+
+          file \
+            build/aarch64/soul-essence-nextos
+
+          readelf -h \
+            build/aarch64/soul-essence-nextos
+
+          readelf -d \
+            build/aarch64/soul-essence-nextos \
+            || true
+
+      - name: Assemble PortMaster package
+        run: |
+
+          rm -rf dist
+
+          mkdir -p \
+            "dist/Soul Essence NextOS/bin/aarch64"
+
+          mkdir -p \
+            "dist/Soul Essence NextOS/gamedata"
+
+          cp \
+            build/aarch64/soul-essence-nextos \
+            "dist/Soul Essence NextOS/bin/aarch64/"
+
+          cp \
+            "port/Soul Essence NextOS.sh" \
+            "dist/Soul Essence NextOS/"
+
+          cp \
+            README.md \
+            "dist/Soul Essence NextOS/"
+
+          cp \
+            LICENSE \
+            "dist/Soul Essence NextOS/"
+
+          cp \
+            nxproject.json \
+            "dist/Soul Essence NextOS/"
+
+          cat > \
+            "dist/Soul Essence NextOS/gamedata/README.txt" \
+            <<'EOF'
+
+SOUL ESSENCE BYO-DATA
+
+Place your legally obtained Soul Essence APK here.
+
+Expected APK:
+
+Soul-essence-v6-0.apk
+
+The public port does not redistribute proprietary
+game data.
+
+EOF
+
+      - name: Create ZIP
+        run: |
+
+          mkdir -p artifacts
+
+          cd dist
+
+          zip \
+            -r \
+            -9 \
+            ../artifacts/Soul-Essence-NextOS-aarch64.zip \
+            "Soul Essence NextOS"
+
+          cd ..
+
+          sha256sum \
+            artifacts/Soul-Essence-NextOS-aarch64.zip \
+            > \
+            artifacts/Soul-Essence-NextOS-aarch64.zip.sha256
+
+      - name: Upload final artifact
+        uses: actions/upload-artifact@v4
+
+        with:
+          name: soul-essence-nextos-aarch64
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 14
